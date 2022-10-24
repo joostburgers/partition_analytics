@@ -1,0 +1,42 @@
+---
+title: "partition_db_stats"
+format: html
+editor: visual
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning=FALSE, error=FALSE)
+
+```
+
+### Creating the data table
+
+This process involves stitching the tables back together with a series of `left_joins` and then cleaning up the result.
+
+```{r get_event_data}
+# events <- read_csv("data/rectype-103.csv")  
+#   rename_all(tolower) %>%
+#   rename_with(~ gsub(" ", "_", .x)) %>%
+#   rename_with(~ gsub("h-", "", .x)) %>%
+#   rename_with(~ gsub("\\(s\\)", "", .x))
+```
+
+```{r}
+library(tidyverse)
+library(jsonlite)
+library(httr)
+library(rjson)
+```
+
+```{r}
+url_json <- "https://int-heuristweb-prod.intersect.org.au/heurist/hsapi/controller/record_output.php?q=%5B%7B%22t%22%3A%22103%22%7D%2C%7B%22sortby%22%3A%22t%22%7D%5D&a=1&db=burgers_partition_literature_2022&depth=all&linkmode=direct&format=json&defs=0&extended=1"
+
+```
+
+
+```{r}
+raw_json <- rjson::fromJSON(file = "data/all_data.json", simplify = FALSE)
+  
+```
+
+

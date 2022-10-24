@@ -1,0 +1,123 @@
+---
+title: "XML import"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(xml2) #- pour le traitement XML et notamment la fonction xml_ns_strip()
+library(httr)
+```
+
+```{r}
+# doc <- httr::GET("https://int-heuristweb-prod.intersect.org.au/heurist/export/xml/flathml.php?q=sortby%3A-m&a=1&db=burgers_partition_literature_2022&depth=all&linkmode=direct") %>%     
+#    .$content %>%   
+#    rawToChar  
+#  doc2 <-   xml2::read_xml(doc)
+```
+
+
+
+```{r}
+doc <- read_xml("all_data.xml")
+xml_ns_strip(doc)
+```
+
+```{r}
+records <- xml_find_all(doc, ".//record")
+id <- lapply(records, xml_find_first, './/id')
+id <- lapply(id,xml_text)
+id_type <- xml_find_all(doc, ".//record/type") %>% xml_text()
+rep.id <- xml_find_all(doc, ".//record") %>% 
+  map_dbl(~xml_find_first(.x, "count(.//detail[@name])"))
+```
+
+```{r}
+values <- lapply(records, xml_find_all, './/detail[@name]')
+values <- lapply(values,xml_text)
+attributes <- lapply(records, xml_find_all, './detail[@name]')
+attributes <- lapply(attributes,xml_attr,attr="name")
+
+#- assemblage de ces éléments pour constituer le tableau "d"
+d <- data.frame(id=rep(unlist(id),times=rep.id),
+                type=rep(id_type,times=rep.id),
+                attribut=unlist(attributes),
+                value=unlist(values))
+
+#- aperçu du tableau "d" (pour confidentialité des données, je montre seulement 30 lignes du tableau, sélectionnées au hasard)
+d %>% slice(sample(1:nrow(d),30,replace=F)) %>% kbl() %>% kable_styling ("striped") %>%  scroll_box(height="200px")
+```
+```{r}
+rm(id,records,values,attributes,id_type,rep.id)
+```
+
+```{r}
+tables <- xml_find_all(doc, ".//record/type") %>% xml_text() %>% unique () %>%
+  .[.!="CMS_Home"] %>% .[.!="CMS Menu-Page"]
+tables
+```
+
+```{r}
+for (i in 1:length(tables)) {
+  temp <- d %>% filter(type==tables[i]) %>% select(-type) %>%
+    pivot_wider(names_from=attribut,values_from=value,
+                values_fn = function(x) paste(x,collapse=" / ")) %>%
+    unnest(cols = everything() )
+  assign(tables[i],temp)
+}
+
+#- je supprime les objets temporaires
+rm(doc,d,temp,i,tables)
+```
+
+
+```{r}
+all_events <- Event %>% 
+             rename_with(~ tolower(gsub(" ", "_", .x, fixed = TRUE))) %>% 
+             rename_with(~ gsub("(s)", "", .x, fixed = TRUE))  
+  
+
+event_present <- all_events %>% 
+                  separate_rows(character_present, sep=" / ") %>% 
+                  mutate(character_mentioned = NA) %>% 
+                  mutate(PresentMentioned = "Present")
+
+
+```
+
+```{r}
+event_mentioned <- all_events %>% 
+                    separate_rows(character_mentioned, sep=" / ") %>% 
+                  mutate(character_present = NA) %>% 
+                  mutate(PresentMentioned = "Mentioned") %>% 
+                  drop_na(character_mentioned)
+                  
+
+          
+
+
+```
+
+
+```{r}
+full_events <- event_present %>% 
+               add_row(event_mentioned) %>% 
+                select(!(reviewer:revisions)) %>% 
+                  select(!(revision_explanation:cleared)) %>% 
+                  mutate(character_id = ifelse(is.na(character_present),character_mentioned,character_present))
+
+```
+
+
+```{r}
+characters_trimmed <- Character %>% 
+                      select(id:AKA)
+```
+
+
+```{r}
+event_characters <- full_events %>% 
+                    left_join(characters_trimmed, by =c ("character_id" = "id") ) 
+```
+
