@@ -35,7 +35,7 @@ gender_population <- partition_db_geo %>%
                      group_by(gender_author) %>% 
                      count(gender_character) %>% 
                     mutate(percent = n/sum(n))
-
+#adding comments
 ```
 
 ```{r}
