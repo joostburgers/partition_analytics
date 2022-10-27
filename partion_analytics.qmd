@@ -11,7 +11,6 @@ knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning=FALSE, error=FALSE)
 
 ### Creating the data table
 
-
 ```{r}
 library(tidyverse)
 library(jsonlite)
@@ -47,14 +46,11 @@ gender_authors <- partition_db_geo %>%
                   count(gender_author, name = "texts")
 ```
 
-
 ```{r}
 gender_population <- gender_population %>% 
                       left_join(gender_authors)
 ```
 
-
 ```{r}
 
 ```
-
