@@ -8,16 +8,15 @@ editor: visual
 library(tidyverse)
 library(xml2) #- pour le traitement XML et notamment la fonction xml_ns_strip()
 library(httr)
+library(snakecase)
 ```
 
 ```{r}
-# doc <- httr::GET("https://int-heuristweb-prod.intersect.org.au/heurist/export/xml/flathml.php?q=sortby%3A-m&a=1&db=burgers_partition_literature_2022&depth=all&linkmode=direct") %>%     
-#    .$content %>%   
-#    rawToChar  
-#  doc2 <-   xml2::read_xml(doc)
+ # doc2 <- httr::GET("https://int-heuristweb-prod.intersect.org.au/heurist/export/xml/flathml.php?q=sortby%3A-m&a=1&db=burgers_partition_literature_2022&depth=all&linkmode=direct") %>%     
+ #    .$content %>%   
+ #    rawToChar  
+ #  doc2 <-   xml2::read_xml(doc2)
 ```
-
-
 
 ```{r}
 doc <- read_xml("all_data.xml")
@@ -46,8 +45,9 @@ d <- data.frame(id=rep(unlist(id),times=rep.id),
                 value=unlist(values))
 
 #- aperçu du tableau "d" (pour confidentialité des données, je montre seulement 30 lignes du tableau, sélectionnées au hasard)
-d %>% slice(sample(1:nrow(d),30,replace=F)) %>% kbl() %>% kable_styling ("striped") %>%  scroll_box(height="200px")
+# d %>% slice(sample(1:nrow(d),30,replace=F)) %>% kbl() %>% kable_styling ("striped") %>%  scroll_box(height="200px")
 ```
+
 ```{r}
 rm(id,records,values,attributes,id_type,rep.id)
 ```
@@ -55,7 +55,7 @@ rm(id,records,values,attributes,id_type,rep.id)
 ```{r}
 tables <- xml_find_all(doc, ".//record/type") %>% xml_text() %>% unique () %>%
   .[.!="CMS_Home"] %>% .[.!="CMS Menu-Page"]
-tables
+
 ```
 
 ```{r}
@@ -71,16 +71,14 @@ for (i in 1:length(tables)) {
 rm(doc,d,temp,i,tables)
 ```
 
-
 ```{r}
 all_events <- Event %>% 
-             rename_with(~ tolower(gsub(" ", "_", .x, fixed = TRUE))) %>% 
-             rename_with(~ gsub("(s)", "", .x, fixed = TRUE))  
+              rename_with(~ to_any_case(.x, "snake"))
   
 
 event_present <- all_events %>% 
-                  separate_rows(character_present, sep=" / ") %>% 
-                  mutate(character_mentioned = NA) %>% 
+                  separate_rows(character_s_present, sep=" / ") %>% 
+                  mutate(character_s_mentioned = NA) %>% 
                   mutate(PresentMentioned = "Present")
 
 
@@ -88,10 +86,10 @@ event_present <- all_events %>%
 
 ```{r}
 event_mentioned <- all_events %>% 
-                    separate_rows(character_mentioned, sep=" / ") %>% 
-                  mutate(character_present = NA) %>% 
+                    separate_rows(character_s_mentioned, sep=" / ") %>% 
+                  mutate(character_s_present = NA) %>% 
                   mutate(PresentMentioned = "Mentioned") %>% 
-                  drop_na(character_mentioned)
+                  drop_na(character_s_mentioned)
                   
 
           
@@ -99,25 +97,101 @@ event_mentioned <- all_events %>%
 
 ```
 
-
 ```{r}
 full_events <- event_present %>% 
                add_row(event_mentioned) %>% 
                 select(!(reviewer:revisions)) %>% 
                   select(!(revision_explanation:cleared)) %>% 
-                  mutate(character_id = ifelse(is.na(character_present),character_mentioned,character_present))
+                  mutate(character_id = ifelse(is.na(character_s_present),character_s_mentioned,character_s_present))
 
 ```
-
 
 ```{r}
 characters_trimmed <- Character %>% 
-                      select(id:AKA)
+                      select(id:AKA) %>% 
+   rename_with(~ to_any_case(.x, "snake")) %>% 
+                    select(-text)
 ```
-
 
 ```{r}
 event_characters <- full_events %>% 
                     left_join(characters_trimmed, by =c ("character_id" = "id") ) 
+```
+
+## Create text IDs
+
+```{r}
+book <- Book %>% 
+         rename_with(~ to_any_case(.x, "snake"))
+```
+
+
+```{r}
+book_chapter <- `Book chapter` %>%
+                 rename_with(~ to_any_case(.x, "snake"))
+                
+```
+
+```{r}
+book_texts <- book %>% 
+              left_join(book_chapter, by = c("id" = "book")) %>% 
+              rename(text_id = id.y)
+```
+
+```{r}
+authors <- Author %>% 
+           rename_with(~ to_any_case(.x, "snake"))
+```
+
+
+```{r}
+book_texts_author <- book_texts %>% 
+                      left_join(authors, by = c("author_s" = "id")) %>% 
+                      select(-c(year,author_editor_s, title_short:edited_volume, start_page:translation_issues, short_description:last_col())) %>% 
+                    rename(book_id = id)
+  
+```
+
+```{r}
+partition_db_compact <- event_characters %>% 
+                        left_join(book_texts_author, by = c("text" = "text_id"), suffix = c("_character","_author")) %>% 
+  rename(event_id = id) %>% 
+  rename(text_id = text) %>% 
+  select(-c(character_s_present,character_s_mentioned, place_mentioned:intertextual_reference)) %>% 
+  relocate(c(text_id:place_textual), .after = last_col())
+  
+```
+
+
+# Convert text places
+
+```{r}
+
+place_textual <- Place_textual %>% 
+                  rename_with(~ to_any_case(.x, "snake")) %>% 
+                  rename(text_place_name = place_name)
+
+```
+
+```{r}
+place_mapped <- Place_mapped %>% 
+                 rename_with(~ to_any_case(.x, "snake"))
+```
+
+```{r}
+place_data <- place_textual %>% 
+              left_join(place_mapped, by = c("place_mapped" = "id" )) %>% 
+              select(-c(reviewer,revisions,revision_explanation)) %>% 
+              rename(text_place_id = id)
+```
+
+```{r}
+partition_db_geo <- partition_db_compact %>% 
+                    left_join(place_data, by = c("place_textual" = "text_place_id"))
+```
+
+# Full database
+```{r}
+write_csv(partition_db_geo,"partition_db_geo.csv")
 ```
 

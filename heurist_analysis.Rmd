@@ -1,0 +1,339 @@
+---
+title: "Heurist Analysis"
+author: "Johannes Burgers"
+date: "10/30/2021"
+output: rmdformats::html_clean
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = file.path(dirname(inputFile), 'index.html')) })
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning=FALSE, error=FALSE)
+
+```
+
+```{r load_libraries}
+library(tidyverse)
+library(tidytext)
+library(ggthemes)
+library(rmdformats)
+library(cooccur)
+library(htmlTable)
+```
+
+### Creating the data table
+
+This process involves stitching the tables back together with a series of `left_joins` and then cleaning up the result.
+
+```{r get_event_data}
+events <- read_csv("data/rectype-59.csv") %>% 
+  rename_all(tolower) %>%
+  rename_with(~ gsub(" ", "_", .x)) %>%
+  rename_with(~ gsub("h-", "", .x)) %>%
+  rename_with(~ gsub("\\(s\\)", "", .x))
+```
+
+
+```{r split_present_mentioned}
+events_present <- events %>%
+  unnest_regex(character_id, "characters_in_event_id", pattern = "\\|") %>%                 mutate(presentmentioned = "Present")
+```
+
+```{r get_event_mentioned_data}
+events_mentioned <- events %>%
+  unnest_regex(character_id, "character_mentioned_id", pattern = "\\|") %>%                 mutate(presentmentioned = "Mentioned") %>%
+    drop_na(character_id)
+```
+
+
+```{r bind_data}
+all_events <- events_present %>%
+  bind_rows(events_mentioned) %>% 
+  mutate(character_id = as.numeric(character_id)) 
+```
+
+```{r import_characters}
+characters <-  read_csv("data/rectype-54.csv") %>%
+  rename(character_id = "Character H-ID") 
+```
+
+```{r import_locations}
+locations <- read_csv("data/rectype-12.csv")
+```
+
+```{r import_texts}
+texts <- read_csv("data/rectype-55.csv") %>%
+  rename("Author H-ID" = "Author(s) > H-ID")
+```
+
+```{r import_places}
+places <- read_csv("data/rectype-58.csv") 
+```
+
+```{r import_event_texts}
+event_texts <- read_csv("data/rectype-59-titles.csv") 
+```
+
+```{r import_authors}
+authors <-
+  read_csv("data/rectype-10.csv")
+```
+
+```{r create_full_table}
+full_table <- all_events %>%
+  left_join(characters) %>% 
+  left_join(places, by = c("location_of_event_(text_place)_id"="Text place H-ID")) %>% 
+  left_join(locations, by =c("Location pointer H-ID"="Location H-ID"  )) %>% 
+  left_join(texts, by = c("text_pointer_id" = "Text H-ID")) %>% 
+  left_join(authors, by = "Author H-ID", suffix = c("", "_author"))  
+
+
+```
+
+```{r clean_data}
+partition_narratives <- full_table %>%
+  select(
+    -"characters_in_event_recordtitle",
+    -"character_mentioned_id",
+    -"character_mentioned_recordtitle",
+    -"characters_in_event_id",
+    -"text_pointer_id",
+    -"text_pointer_recordtitle",
+    -"s.x",
+    -"rec_Title.y",
+    -"s.x.x",
+    -"s.y.y",
+    -"s",
+    -"rec_Title",
+  #  -"Text RecordTitle",
+  #  -"Text pointer H-ID",
+  #  -"Text pointer RecordTitle",
+    -"Geolocation Page",
+    -"Primary place name",
+    -"Alternative Name",
+ #   -"Locality name",
+    -"s.y",
+    -"Family name_author",
+    -"Given name(s)_author"
+  ) %>%
+  rename(char_story_title = "rec_Title.x") %>%
+  rename(relig_att_char = "Religious attribution.x") %>%
+  rename(relig_att_loc = "Religious attribution.y") %>%
+  rename(author_name = "Author(s) > RecordTitle") %>% 
+  rename(text_place_id = "location_of_event_(text_place)_id") %>% 
+  rename(text_place_title = "location_of_event_recordtitle") %>% 
+  rename(location_id = "Location pointer H-ID") %>% 
+  rename(location_name = "Location pointer RecordTitle") %>% 
+  rename(WKT = "Location (mappable)") %>% 
+#  rename(pub_year = "Original publication year") %>% 
+  rename(author_id = "Author H-ID") %>% 
+  rename(author_birth_place_id = "Place of birth (Location) H-ID") %>% 
+  rename(author_birth_location = "Place of birth RecordTitle") %>% 
+   rename_all(tolower) %>%
+  rename_with(~ gsub(" ", "_", .x)) %>%
+  rename_with(~ gsub("h-", "", .x)) %>%
+  rename_with(~ gsub("\\(s\\)", "", .x)) %>% 
+  relocate(text_title, .before =1) %>% 
+  relocate(author_name, .before=1) %>% 
+#  relocate(family_name:country_of_birth, .after=partition) %>% 
+  relocate(presentmentioned, .after= country_of_birth) %>% 
+  relocate(text_place_id, .after = last_col()) %>% 
+#  relocate(character_id:text_id, .after = last_col()) %>% 
+  relocate(location_id,.after = last_col()) %>% 
+  relocate(author_id, .after= last_col()) %>% 
+  relocate(author_birth_place_id, .after = last_col())
+```
+
+```{r export_data}
+write_csv(partition_narratives,"partition_database.csv")
+```
+
+
+```{r export_locations}
+partition_geotagged <- partition_narratives %>% 
+                        drop_na(wkt)
+
+write_csv(partition_geotagged, "partition_geotagged.csv")
+```
+
+```{r}
+partition_chronological <- partition_geotagged %>% 
+                           distinct(event_id, .keep_all = TRUE) %>% 
+                           mutate(event_order = start_page_event+(page_event_number/10)) %>%                           group_by(text_title) %>%   
+                          arrange(text_title,event_order) %>% 
+                          mutate(chrono = row_number()) %>% 
+                          ungroup() %>% 
+                          mutate(sequence_chrono = row_number()) %>% 
+                          select(event_id, chrono, sequence_chrono)  
+
+write_csv(partition_chronological, "partition_chrono.csv")
+
+```
+
+
+
+
+# Playing with the data
+
+### Does the gender of the author influence the gender of the characters?
+
+```{r gender_author_table, echo=TRUE}
+gender_authorship <- partition_narratives %>% #all of the data
+  group_by(gender_author) %>% # Group by author
+  filter(presentmentioned == "Present") %>% #Exclude characters who are only mentioned
+  drop_na(gender) %>% #Drop empty gender fields
+  count(gender) %>% #Count gender by type
+  mutate(percent = round((n / sum(n) * 100), 2)) #Create percentage
+  
+```
+
+```{r gender_author_plot}
+gender_authorship %>%
+  ggplot(aes(x = gender, y = percent, fill = gender_author)) +
+  geom_col(color = "black",
+           alpha = .5,
+           position = "dodge") +
+  labs(title = "Gender and Authorship",
+       x = "Gender",
+       y = "Percent Present in Events",
+       fill = "Author Gender") +
+  theme_clean()
+```
+
+### What location has the most religious conflict?
+
+```{r religious_conflict_places, echo=TRUE}
+religion_places <-  partition_narratives %>%
+  group_by(author_name) %>%
+  mutate(location_religion = ifelse(
+    str_detect(location_religion, "\\|") == TRUE,
+    "Multi-faith",
+    location_religion
+  )) %>%
+  filter(str_detect(conflict, "Religion")) %>%
+  count(location_religion)
+```
+
+```{r religious_conflict_plot}
+religion_places %>%
+  ggplot(aes(x = location_religion, y = n, fill = location_religion)) +
+  geom_col(color = "black",
+           alpha = .5,
+           position = "identity") +
+  labs(title = "Religious Conflict by Religious Locations",
+       x = "Location Religion",
+       y = "Number of Religious Conflicts",
+       fill = "Author") +
+  facet_wrap( ~ author_name) +
+  theme_clean()
+```
+
+
+### Where do people die?
+
+```{r mortality, echo=TRUE}
+death_places <- partition_narratives %>% 
+                group_by(place_name) %>% 
+                count(vitality) %>% 
+                drop_na(vitality)
+```
+
+```{r mortality_plot}
+death_places %>% 
+  ungroup() %>% 
+  top_n(10) %>% 
+  ggplot(aes(x=reorder(place_name,n),y=n, fill=vitality)) +
+  geom_col(
+     color = "black",
+    alpha = .5,
+      position = "dodge") +
+
+  labs(title = "Vitality by Location",
+       x = "Place Name",
+       y = "Number of Life Events",
+       fill = "Author") +
+    theme_clean()+
+  coord_flip()
+```
+
+## Co-occurrence analysis
+
+Co-occurrence allows you to determine the "rules of assembly" of the characters in the data set. That is, it determines if there is an underlying relationship between certain pairs of characters and if that relationship is positive (when one occurs the odds of another occurring are higher) or negative (when one occurs the odds of another occurring is lower). For example, one would expect that Male and Women of the same religion, and men of different religions might occur together, but a man and a woman from a different religion might be exceedingly rare. 
+
+You can use the code below to construct your own "species" by concatenating values across columns. In the example, I've combined gender and religion. One could equally well combine gender and conflict to see gender is statistically tied to what conflict. This is more accurate than doing a raw cross-tab because it takes into consideration how many of each quantity are in the data set. For example, there is only one main Jewish character in the text, but she always occurs with a Sikh. Her relationship is highly patterned.
+
+```{r create_co_occurrence_matrix}
+partition_gender_religion <- partition_narratives %>%
+  filter (!is.na(gender) |
+            !is.na(religion)) %>% #filter the NA's from the data you intend to turn into a "species"
+  mutate(species = paste(gender,  religion, sep = " ")) %>%  #this is where you fill in the column names from the table to create your "species"
+  group_by(event_id) %>%
+  count(species) %>%
+  mutate(n = ifelse (n > 0, 1, 0)) %>%
+  pivot_wider(names_from = event_id,
+              values_from = n,
+              values_fill = 0) %>%
+  column_to_rownames(var = "species")
+```
+
+### Run the co-occurrence 
+
+Run the co-occurrence analysis. Right now, this is set to the most computationally expensive settings. It will cast a matrix several columns wide. Please be patient, it might seem like nothing is happening, but you'll eventually get a result.
+
+```{r run_co_occur, message=FALSE, warning=FALSE, cache=TRUE, echo=TRUE, results="hide"}
+
+partition_gender_religion_cooccur <-
+  cooccur(
+    mat = partition_gender_religion,
+    type = "spp_site",
+    thresh = TRUE,
+    spp_names = TRUE,
+    true_rand_classifier = 0.1,
+    prob = "comb",
+    site_mask = NULL,
+    only_effects = FALSE,
+    eff_standard = FALSE,
+    eff_matrix = FALSE
+  )
+
+```
+
+### Co-occur object
+
+The co-occur analysis will create an co-occur "object." An object is a special data type that is composed of multiple-complex data types. All you really need to know is that you can't view it as a table because it has a bunch of nested lists. To view different parts of it, you need to use the functions in the co-occur library. Each is described below.
+
+```{r create_plot, paged.print=TRUE}
+#Creates a cross-tab plot
+cooccur_plot <- plot(partition_gender_religion_cooccur)
+
+cooccur_plot
+```
+
+```{r create_summary}
+#creates a summary table with an overview of the data.
+summary(partition_gender_religion_cooccur)
+```
+
+```{r create_pairwise_attributes, paged.print = TRUE}
+#Gives pairwise stats on each variable
+cooccur_pairs <- pair.attributes(partition_gender_religion_cooccur)
+
+cooccur_pairs %>% 
+   addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"))%>%
+  htmlTable(caption = "Co-occur Pairs")
+
+cooccur_pairs
+```
+
+```{r create_probability_table, paged.print = TRUE}
+#Shows the odds of a pairing value being random. Only when p_lt and pl_gt are below .05 are the pairings significant. These are in an inverse relationship with one another.
+
+#p_lt between .05 and 0 is a negative relationship (one goes up, the other goes down)
+#p_gt between .05 and 0 is a negative relationship (both tend to co-occur together)
+
+cooccur_probtable <-  prob.table(partition_gender_religion_cooccur)
+
+cooccur_probtable %>% 
+   addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"))%>%
+  htmlTable(caption = "Co-occur Probability Table")
+```
+
