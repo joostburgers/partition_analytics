@@ -17,26 +17,114 @@ library(jsonlite)
 library(httr)
 
 library(cooccur)
-library(htmlTable)
+#library(htmlTable)
 ```
 
 ### Import full database
 
 ```{r}
-partition_db_geo <- read_csv("partition_db_geo.csv")
+partition_db_geo <-read_csv("output_data//partition_db_geo.csv")
 ```
 
 ### Descriptive statistics
 
-```{r}
+```{r gender_breakdown}
 
 gender_population <- partition_db_geo %>% 
                     drop_na(gender_author) %>% 
                      group_by(gender_author) %>% 
+                  filter(PresentMentioned == "Present") %>%
                      count(gender_character) %>% 
                     mutate(percent = n/sum(n))
 #adding comments
 ```
+
+
+
+```{r gender_author_plot}
+gender_population %>%
+  ggplot(aes(x = gender_character, y = percent, fill = gender_author)) +
+  geom_col(color = "black",
+           alpha = .5,
+           position = "dodge") +
+  labs(title = "Gender and Authorship",
+       x = "Gender",
+       y = "Percent Present in Events",
+       fill = "Author Gender") 
+```
+```{r place_modalities}
+place_modalities <-  partition_db_geo %>%
+  drop_na(gender_author) %>% 
+  distinct(event_id,.keep_all = TRUE) %>% 
+  mutate(author_name = paste(given_name_s,family_name_author)) %>% 
+  group_by(gender_author) %>%
+    count(place_modality) %>%
+      mutate(percent = n/sum(n))
+```
+
+```{r place_modality_chart}
+place_modalities %>%
+  ggplot(aes(x = place_modality, y = percent, fill = gender_author)) +
+  geom_col(color = "black",
+           alpha = .5,
+           position = "dodge") +
+  labs(title = "Gender and Space Type",
+       x = "Space Type",
+       y = "Percent Events",
+       fill = "Author Gender") 
+
+```
+
+
+
+```{r place_ontology}
+place_ontology <-  partition_db_geo %>%
+  drop_na(gender_author) %>% 
+  distinct(event_id,.keep_all = TRUE) %>% 
+  
+  group_by(gender_author) %>%
+    count(ontology) %>%
+      mutate(percent = n/sum(n))
+
+
+```
+
+```{r}
+place_ontology %>%
+  ggplot(aes(x = ontology, y = percent, fill = gender_author)) +
+  geom_col(color = "black",
+           alpha = .5,
+           position = "dodge") +
+  labs(title = "Author Gender and Ontology",
+       x = "Ontology",
+       y = "Percent Events",
+       fill = "Author Gender") 
+
+```
+
+```{r ontology_modality}
+gender_at_places <- partition_db_geo %>% 
+                    drop_na(gender_author) %>% 
+                     group_by(gender_author, place_modality) %>% 
+                  filter(PresentMentioned == "Present") %>% 
+                  count(gender_character) %>% 
+                  mutate(percent = n/sum(n))
+                    
+```
+
+```{r}
+gender_at_places %>%
+  ggplot(aes(x = place_modality, y = percent, fill = gender_character)) +
+  geom_col(color = "black",
+           alpha = .5,
+           position = "dodge") +
+  labs(title = "Author Gender and Ontology",
+       x = "Ontology",
+       y = "Percent Events",
+       fill = "Gender Character") +
+      facet_wrap(~gender_author)
+```
+
 
 ```{r}
 gender_authors <- partition_db_geo %>% 
@@ -52,5 +140,7 @@ gender_population <- gender_population %>%
 ```
 
 ```{r}
+
+
 
 ```
